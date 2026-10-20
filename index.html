@@ -807,8 +807,9 @@
 
 <script>
 /* Photos live in the "images" folder next to this file. To add one, list its name below. */
-const DIR  = "images";
-const EXTS = [".png", ".PNG", ".jpg", ".jpeg", ".JPG", ".webp"];
+const DIRS = ["images", "Images"];
+const EXTS = [".webp", ".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG", ".WEBP"];
+let hint = null;   /* the folder + extension that worked last, tried first next time */
 
 const CARS = {
   sorento: { name: "Kia Sorento",
@@ -867,15 +868,22 @@ async function saveCarBooking(carKey, from, to, name, phone){
   });
 }
 
-/* --- find the file, whatever its extension --- */
+/* --- find the file, whatever its folder case or extension --- */
 function findFile(base){
   return new Promise(done => {
+    const tries = [];
+    if (hint) tries.push(hint.dir + "/" + base + hint.ext);
+    DIRS.forEach(d => EXTS.forEach(e => tries.push(d + "/" + base + e)));
     let i = 0;
     (function attempt(){
-      if (i >= EXTS.length) return done(null);
-      const url = DIR + "/" + base + EXTS[i++];
+      if (i >= tries.length){ console.warn("Photo not found:", base); return done(null); }
+      const url = tries[i++];
       const probe = new Image();
-      probe.onload  = () => done(url);
+      probe.onload  = () => {
+        const m = url.match(/^(.*)\/[^/]+(\.[^.]+)$/);
+        if (m) hint = { dir:m[1], ext:m[2] };
+        done(url);
+      };
       probe.onerror = attempt;
       probe.src = url;
     })();
@@ -883,7 +891,7 @@ function findFile(base){
 }
 
 /* --- hero --- */
-findFile(HERO_SHOT).then(url => {
+findFile(HERO_SHOT).then(url => url || findFile("land1")).then(url => {
   if (!url) return;
   const el = document.getElementById("heroShot");
   el.src = url;
@@ -933,7 +941,7 @@ document.addEventListener("keydown", e => {
 });
 
 /* --- build each vehicle spread --- */
-document.querySelectorAll("[data-car]").forEach(async block => {
+async function buildCar(block){
   const car = CARS[block.dataset.car];
   if (!car) return;
 
@@ -961,6 +969,7 @@ document.querySelectorAll("[data-car]").forEach(async block => {
   };
 
   shot.alt = car.name;
+  shot.decoding = "async";
   show(0);
 
   if (urls.length > 1){
@@ -970,7 +979,7 @@ document.querySelectorAll("[data-car]").forEach(async block => {
       b.setAttribute("aria-label", car.name + " " + (i + 1));
       b.setAttribute("aria-current", i === 0 ? "true" : "false");
       const t = document.createElement("img");
-      t.src = url; t.alt = ""; t.loading = "lazy";
+      t.src = url; t.alt = ""; t.loading = "lazy"; t.decoding = "async";
       b.appendChild(t);
       b.addEventListener("click", () => show(i));
       strip.appendChild(b);
@@ -982,7 +991,17 @@ document.querySelectorAll("[data-car]").forEach(async block => {
   shot.addEventListener("keydown", e => {
     if (e.key === "Enter" || e.key === " "){ e.preventDefault(); vOpen(urls, at, car.name, shot); }
   });
-});
+}
+
+/* load a car's photos only when its section is close to the screen */
+(function(){
+  const blocks = document.querySelectorAll("[data-car]");
+  if (!("IntersectionObserver" in window)){ blocks.forEach(buildCar); return; }
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(en => { if (en.isIntersecting){ io.unobserve(en.target); buildCar(en.target); } });
+  }, { rootMargin:"700px 0px" });
+  blocks.forEach(b => io.observe(b));
+})();
 
 /* --- language --- */
 let lang = "en";
